@@ -8,7 +8,7 @@
     /* ── Reset ───────────────────────────────────────── */
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a0f; }
-    canvas { display: block; }
+    canvas#three-canvas { display: block; }
 
     /* ── Overlay ─────────────────────────────────────── */
     #overlay {
@@ -34,7 +34,7 @@
       margin-bottom: .6rem;
     }
     #overlay p {
-      font-size: 1.05rem; color: #9898b8; max-width: 380px; text-align: center;
+      font-size: 1.05rem; color: #9898b8; max-width: 420px; text-align: center;
       line-height: 1.6;
     }
     #overlay .keys {
@@ -86,6 +86,111 @@
       top: -1px; left: -9px;
     }
 
+    /* ── Minimap ─────────────────────────────────────── */
+    #minimap-wrap {
+      position: fixed;
+      bottom: 20px; right: 20px;
+      width: 180px; height: 180px;
+      z-index: 6;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .4s ease;
+    }
+    #minimap-wrap.visible { opacity: 1; }
+    #minimap {
+      width: 100%; height: 100%;
+      border-radius: 50%;
+      border: 2px solid rgba(140,140,200,.25);
+      box-shadow: 0 0 20px rgba(0,0,0,.6), inset 0 0 30px rgba(0,0,0,.4);
+      background: rgba(10,10,20,.75);
+      backdrop-filter: blur(6px);
+    }
+    #minimap-label {
+      position: absolute;
+      bottom: -22px; left: 50%;
+      transform: translateX(-50%);
+      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+      font-size: .65rem; font-weight: 600;
+      color: rgba(180,180,220,.5);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    /* ── Compass ─────────────────────────────────────── */
+    #compass {
+      position: fixed;
+      top: 16px; left: 50%;
+      transform: translateX(-50%);
+      z-index: 6;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .4s ease;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    #compass.visible { opacity: 1; }
+    #compass-bar {
+      width: 320px; height: 28px;
+      overflow: hidden;
+      position: relative;
+      background: rgba(10,10,20,.55);
+      backdrop-filter: blur(8px);
+      border-radius: 6px;
+      border: 1px solid rgba(140,140,200,.12);
+    }
+    #compass-strip {
+      position: absolute;
+      top: 0; height: 100%;
+      display: flex; align-items: center;
+      white-space: nowrap;
+      font-size: .7rem;
+      color: rgba(160,160,200,.5);
+      transition: left .08s linear;
+    }
+    #compass-strip .dir {
+      display: inline-block;
+      width: 80px;
+      text-align: center;
+      font-weight: 700;
+      font-size: .8rem;
+    }
+    #compass-strip .dir.cardinal { color: rgba(220,220,255,.8); }
+    #compass-strip .tick {
+      display: inline-block;
+      width: 80px;
+      text-align: center;
+    }
+    #compass-center {
+      position: absolute;
+      top: -3px; left: 50%;
+      transform: translateX(-50%);
+      width: 2px; height: 34px;
+      background: rgba(200,180,255,.5);
+      border-radius: 1px;
+    }
+
+    /* ── Zone indicator ──────────────────────────────── */
+    #zone-indicator {
+      position: fixed;
+      top: 54px; left: 50%;
+      transform: translateX(-50%);
+      z-index: 6;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .5s ease;
+      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+      font-size: .75rem;
+      font-weight: 600;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      padding: 4px 14px;
+      border-radius: 4px;
+      background: rgba(10,10,20,.5);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,.08);
+    }
+    #zone-indicator.visible { opacity: 1; }
+
     /* ── Debug info ──────────────────────────────────── */
     #debug {
       position: fixed; bottom: 16px; left: 16px;
@@ -101,9 +206,9 @@
   <!-- Overlay -->
   <div id="overlay">
     <h1>FPS Playground</h1>
-    <p>First-person movement demo with collision. Walk around and explore the arena.</p>
+    <p>Explore 3 zones — a starting camp, ruined outpost, and enemy base — connected by open paths. Use the minimap and compass to navigate.</p>
     <div class="keys">
-      <div class="key" style="grid-column:2">W</div>
+      <div class="key">W</div>
       <div class="key">A</div>
       <div class="key">S</div>
       <div class="key">D</div>
@@ -114,10 +219,27 @@
   <!-- Crosshair -->
   <div id="crosshair"></div>
 
+  <!-- Compass -->
+  <div id="compass">
+    <div id="compass-bar">
+      <div id="compass-strip"></div>
+      <div id="compass-center"></div>
+    </div>
+  </div>
+
+  <!-- Zone indicator -->
+  <div id="zone-indicator"></div>
+
+  <!-- Minimap -->
+  <div id="minimap-wrap">
+    <canvas id="minimap" width="360" height="360"></canvas>
+    <div id="minimap-label">MINIMAP</div>
+  </div>
+
   <!-- Debug -->
   <div id="debug"></div>
 
-  <!-- Three.js (r170 ESM‑compat UMD) -->
+  <!-- Three.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
   <script>
@@ -125,22 +247,70 @@
      CONFIG
   ================================================================ */
   const CFG = {
-    moveSpeed:    8,       // units / sec
+    moveSpeed:    8,
     sprintMult:   1.8,
     jumpForce:    9,
     gravity:      25,
     playerHeight: 1.7,
     playerRadius: 0.35,
     mouseSens:    0.002,
-    groundSize:   120,
-    fogNear:      40,
-    fogFar:       110,
+    groundSize:   260,
+    fogNear:      60,
+    fogFar:       160,
+  };
+
+  /* ================================================================
+     ZONE DEFINITIONS
+  ================================================================ */
+  const ZONES = {
+    camp: {
+      name: 'Starting Camp',
+      center: { x: 0, z: 45 },
+      radius: 28,
+      palette: {
+        primary:  0xd4a44a,  // warm gold
+        secondary:0x8b6d2e,
+        accent:   0xffcc66,
+        emissive: 0xcc8833,
+        ground:   '#2a2418',
+        groundLine:'rgba(180,140,60,0.15)',
+      },
+      lightColor: 0xffcc88,
+    },
+    outpost: {
+      name: 'Ruined Outpost',
+      center: { x: -55, z: -50 },
+      radius: 30,
+      palette: {
+        primary:  0x4a7a8a,  // teal / grey
+        secondary:0x3a5a66,
+        accent:   0x66cccc,
+        emissive: 0x338899,
+        ground:   '#1a2228',
+        groundLine:'rgba(60,140,160,0.15)',
+      },
+      lightColor: 0x66bbcc,
+    },
+    base: {
+      name: 'Enemy Base',
+      center: { x: 60, z: -55 },
+      radius: 30,
+      palette: {
+        primary:  0x8a3a3a,  // crimson / dark red
+        secondary:0x662828,
+        accent:   0xff4444,
+        emissive: 0xcc2222,
+        ground:   '#281a1a',
+        groundLine:'rgba(180,60,60,0.15)',
+      },
+      lightColor: 0xff6644,
+    },
   };
 
   /* ================================================================
      SCENE SETUP
   ================================================================ */
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const renderer = new THREE.WebGLRenderer({ antialias: true, canvas: undefined });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
@@ -148,6 +318,7 @@
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.1;
   renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.domElement.id = 'three-canvas';
   document.body.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -160,7 +331,7 @@
      SKYBOX — procedural gradient hemisphere
   ================================================================ */
   (() => {
-    const skyGeo = new THREE.SphereGeometry(200, 32, 32);
+    const skyGeo = new THREE.SphereGeometry(220, 32, 32);
     const skyMat = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       uniforms: {
@@ -198,38 +369,43 @@
   /* ================================================================
      LIGHTING
   ================================================================ */
-  const ambient = new THREE.AmbientLight(0x6070a0, 0.45);
+  const ambient = new THREE.AmbientLight(0x6070a0, 0.35);
   scene.add(ambient);
 
-  const dirLight = new THREE.DirectionalLight(0xffeedd, 0.9);
-  dirLight.position.set(15, 30, 10);
+  const dirLight = new THREE.DirectionalLight(0xffeedd, 0.7);
+  dirLight.position.set(30, 50, 20);
   dirLight.castShadow = true;
   dirLight.shadow.mapSize.set(2048, 2048);
   dirLight.shadow.camera.near = 0.5;
-  dirLight.shadow.camera.far = 80;
-  dirLight.shadow.camera.left = -40;
-  dirLight.shadow.camera.right = 40;
-  dirLight.shadow.camera.top = 40;
-  dirLight.shadow.camera.bottom = -40;
+  dirLight.shadow.camera.far = 150;
+  dirLight.shadow.camera.left = -80;
+  dirLight.shadow.camera.right = 80;
+  dirLight.shadow.camera.top = 80;
+  dirLight.shadow.camera.bottom = -80;
   dirLight.shadow.bias = -0.001;
   scene.add(dirLight);
 
-  // Soft fill from below
-  const hemiLight = new THREE.HemisphereLight(0x4466aa, 0x223344, 0.35);
+  const hemiLight = new THREE.HemisphereLight(0x4466aa, 0x223344, 0.3);
   scene.add(hemiLight);
+
+  // Per-zone point lights for atmosphere
+  for (const [, zone] of Object.entries(ZONES)) {
+    const pl = new THREE.PointLight(zone.lightColor, 0.8, zone.radius * 2.5, 2);
+    pl.position.set(zone.center.x, 8, zone.center.z);
+    scene.add(pl);
+  }
 
   /* ================================================================
      GROUND
   ================================================================ */
   (() => {
     const S = CFG.groundSize;
-    // Procedural grid texture
     const c = document.createElement('canvas');
     c.width = 512; c.height = 512;
     const ctx = c.getContext('2d');
-    ctx.fillStyle = '#181828';
+    ctx.fillStyle = '#141420';
     ctx.fillRect(0, 0, 512, 512);
-    ctx.strokeStyle = 'rgba(80, 80, 140, 0.18)';
+    ctx.strokeStyle = 'rgba(70, 70, 120, 0.12)';
     ctx.lineWidth = 1;
     for (let i = 0; i <= 512; i += 32) {
       ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 512); ctx.stroke();
@@ -248,19 +424,43 @@
     scene.add(ground);
   })();
 
-  /* ================================================================
-     OBSTACLES
-  ================================================================ */
-  const obstacles = []; // { mesh, box }
+  // Zone ground patches — colored discs for each zone
+  for (const [, zone] of Object.entries(ZONES)) {
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 256;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = zone.palette.ground;
+    ctx.fillRect(0, 0, 256, 256);
+    ctx.strokeStyle = zone.palette.groundLine;
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 256; i += 16) {
+      ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 256); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(256, i); ctx.stroke();
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(zone.radius / 3, zone.radius / 3);
 
-  function createObstacle(w, h, d, x, y, z, color, emissive) {
+    const patch = new THREE.Mesh(
+      new THREE.CircleGeometry(zone.radius, 48),
+      new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8, metalness: 0.05 })
+    );
+    patch.rotation.x = -Math.PI / 2;
+    patch.position.set(zone.center.x, 0.02, zone.center.z);
+    patch.receiveShadow = true;
+    scene.add(patch);
+  }
+
+  /* ================================================================
+     OBSTACLES SYSTEM
+  ================================================================ */
+  const obstacles = [];
+
+  function addBox(w, h, d, x, y, z, color, emissive, emissiveInt = 0.3) {
     const geo = new THREE.BoxGeometry(w, h, d);
     const mat = new THREE.MeshStandardMaterial({
-      color,
-      emissive: emissive || 0x000000,
-      emissiveIntensity: 0.3,
-      roughness: 0.55,
-      metalness: 0.3,
+      color, emissive: emissive || 0x000000,
+      emissiveIntensity: emissiveInt, roughness: 0.55, metalness: 0.3,
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(x, y, z);
@@ -268,48 +468,271 @@
     mesh.receiveShadow = true;
     scene.add(mesh);
 
-    // Edge glow
     const edges = new THREE.LineSegments(
       new THREE.EdgesGeometry(geo),
-      new THREE.LineBasicMaterial({ color: emissive || color, transparent: true, opacity: 0.35 })
+      new THREE.LineBasicMaterial({ color: emissive || color, transparent: true, opacity: 0.3 })
     );
     edges.position.copy(mesh.position);
     scene.add(edges);
 
     const bb = new THREE.Box3().setFromObject(mesh);
-    obstacles.push({ mesh, edges, box: bb });
+    obstacles.push({ mesh, box: bb });
     return mesh;
   }
 
-  // Arena walls / pillars / crates
-  createObstacle(3,  3.6,  3,    6,  1.8,   -4,   0x3a3a5c, 0x6a5acd);
-  createObstacle(2,  2.2,  2,   -5,  1.1,   -8,   0x4a3a3a, 0xcd5a5a);
-  createObstacle(5,  1.4,  1.5,  0,  0.7,    7,   0x3a4a3a, 0x5acd6a);
-  createObstacle(1.5,4,    1.5, 10,  2,      2,   0x4a4a5c, 0x8a7acc);
-  createObstacle(8,  2.5,  0.6,-3,   1.25, -14,   0x3c3c50, 0x5577cc);
-  createObstacle(2,  1.6,  4,   12,  0.8,  -10,   0x50403a, 0xcc8844);
-  createObstacle(1.8,5.5,  1.8,-12,  2.75,   3,   0x3a3a4e, 0x9966dd);
-  createObstacle(6,  0.8,  6,   -8,  0.4,  -20,   0x3e3e52, 0x44aacc);
-  createObstacle(2.5,3,    2.5, 16,  1.5,   10,   0x4a3a4e, 0xcc44aa);
-  createObstacle(4,  2,    1,   -15, 1,    -12,   0x3a4a4e, 0x44ccaa);
+  function addCylinder(rTop, rBot, h, segs, x, y, z, color, emissive, emissiveInt = 0.3) {
+    const geo = new THREE.CylinderGeometry(rTop, rBot, h, segs);
+    const mat = new THREE.MeshStandardMaterial({
+      color, emissive: emissive || 0x000000,
+      emissiveIntensity: emissiveInt, roughness: 0.55, metalness: 0.3,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
 
-  // Decorative distant columns
-  for (let i = 0; i < 8; i++) {
-    const angle = (i / 8) * Math.PI * 2;
-    const r = 38 + Math.random() * 8;
-    const h = 4 + Math.random() * 4;
-    createObstacle(
-      1.2, h, 1.2,
-      Math.cos(angle) * r, h / 2, Math.sin(angle) * r,
-      0x2a2a40, 0x4444aa
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(geo),
+      new THREE.LineBasicMaterial({ color: emissive || color, transparent: true, opacity: 0.25 })
     );
+    edges.position.copy(mesh.position);
+    scene.add(edges);
+
+    // Use AABB for collision (simpler than true cylinder)
+    const bb = new THREE.Box3().setFromObject(mesh);
+    obstacles.push({ mesh, box: bb });
+    return mesh;
   }
+
+  function addCone(r, h, segs, x, y, z, color, emissive) {
+    const geo = new THREE.ConeGeometry(r, h, segs);
+    const mat = new THREE.MeshStandardMaterial({
+      color, emissive: emissive || 0x000000,
+      emissiveIntensity: 0.2, roughness: 0.6, metalness: 0.1,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    const bb = new THREE.Box3().setFromObject(mesh);
+    obstacles.push({ mesh, box: bb });
+    return mesh;
+  }
+
+  /* ================================================================
+     ZONE 1: STARTING CAMP  (center-south, warm gold/amber)
+  ================================================================ */
+  (() => {
+    const cx = ZONES.camp.center.x, cz = ZONES.camp.center.z;
+    const P = ZONES.camp.palette;
+
+    // Tents (cones)
+    addCone(3, 4, 6, cx - 8, 2, cz + 6, P.primary, P.emissive);
+    addCone(2.5, 3.5, 6, cx + 7, 1.75, cz + 8, P.primary, P.emissive);
+    addCone(2, 3, 6, cx - 3, 1.5, cz + 12, P.secondary, P.emissive);
+
+    // Supply crates
+    addBox(2, 1.2, 1.5, cx + 3, 0.6, cz + 4, P.secondary, P.emissive);
+    addBox(1.5, 1, 1.5, cx + 5.5, 0.5, cz + 3.5, P.secondary, P.emissive);
+    addBox(1.8, 0.8, 1, cx + 4, 0.4, cz + 6, P.secondary, P.emissive);
+
+    // Campfire ring (low cylinders in a ring)
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      addCylinder(0.3, 0.35, 0.4, 6,
+        cx + Math.cos(a) * 2.2, 0.2, cz + Math.sin(a) * 2.2,
+        0x5a5040, P.emissive, 0.15);
+    }
+    // Fire glow (emissive cylinder)
+    addCylinder(0.4, 0.4, 0.8, 8, cx, 0.4, cz, 0xffaa33, 0xff6600, 1.5);
+
+    // Fence posts along perimeter (partial, with gaps for paths)
+    for (let i = 0; i < 20; i++) {
+      const a = (i / 20) * Math.PI * 2;
+      // Leave gaps for paths at roughly 180° (south exit to outpost) and 330° (east exit to base)
+      const deg = (a * 180 / Math.PI) % 360;
+      if ((deg > 160 && deg < 220) || (deg > 300 && deg < 360) || (deg > 0 && deg < 30)) continue;
+      const r = 20;
+      addCylinder(0.15, 0.15, 2, 6,
+        cx + Math.cos(a) * r, 1, cz + Math.sin(a) * r,
+        P.secondary, P.emissive, 0.15);
+    }
+
+    // Lookout post
+    addCylinder(0.6, 0.6, 6, 8, cx - 14, 3, cz - 2, P.primary, P.emissive);
+    addBox(3, 0.3, 3, cx - 14, 6, cz - 2, P.secondary, P.emissive);
+
+    // Barrel cluster
+    addCylinder(0.6, 0.6, 1.4, 10, cx + 10, 0.7, cz, P.secondary, P.emissive, 0.2);
+    addCylinder(0.6, 0.6, 1.4, 10, cx + 11.2, 0.7, cz + 0.8, P.secondary, P.emissive, 0.2);
+    addCylinder(0.6, 0.6, 1.4, 10, cx + 10.5, 0.7, cz - 1, P.secondary, P.emissive, 0.2);
+
+    // Weapon rack (tall thin box)
+    addBox(3, 2.5, 0.3, cx - 5, 1.25, cz - 4, P.primary, P.emissive);
+  })();
+
+  /* ================================================================
+     ZONE 2: RUINED OUTPOST  (northwest, teal/grey)
+  ================================================================ */
+  (() => {
+    const cx = ZONES.outpost.center.x, cz = ZONES.outpost.center.z;
+    const P = ZONES.outpost.palette;
+
+    // Broken walls (various heights, some tilted by position offset)
+    addBox(12, 4, 0.6, cx + 2, 2, cz - 12, P.primary, P.emissive);
+    addBox(8, 2.5, 0.6, cx - 10, 1.25, cz - 10, P.primary, P.emissive);
+    addBox(0.6, 3.5, 10, cx - 14, 1.75, cz - 3, P.primary, P.emissive);
+    addBox(6, 1.5, 0.6, cx + 8, 0.75, cz + 5, P.secondary, P.emissive);
+
+    // Fallen columns
+    addCylinder(0.8, 0.8, 7, 10, cx - 4, 0.8, cz + 3, P.secondary, P.emissive, 0.15);
+    addCylinder(0.8, 0.8, 6, 10, cx + 6, 0.8, cz - 4, P.secondary, P.emissive, 0.15);
+
+    // Standing columns (some tall, some broken)
+    addCylinder(0.7, 0.9, 5.5, 8, cx - 6, 2.75, cz - 8, P.primary, P.emissive);
+    addCylinder(0.7, 0.9, 3, 8, cx + 10, 1.5, cz - 8, P.primary, P.emissive);
+    addCylinder(0.7, 0.9, 6, 8, cx - 2, 3, cz + 10, P.primary, P.emissive);
+    addCylinder(0.7, 0.9, 5, 8, cx + 12, 2.5, cz + 2, P.primary, P.emissive);
+
+    // Rubble piles (low flat boxes)
+    addBox(3, 0.5, 4, cx + 2, 0.25, cz - 5, P.secondary, P.emissive, 0.1);
+    addBox(4, 0.7, 3, cx - 8, 0.35, cz + 6, P.secondary, P.emissive, 0.1);
+    addBox(2.5, 0.4, 2.5, cx + 5, 0.2, cz + 8, P.secondary, P.emissive, 0.1);
+
+    // Arch remnant
+    addBox(1, 5, 1, cx - 3, 2.5, cz - 2, P.primary, P.emissive);
+    addBox(1, 5, 1, cx + 3, 2.5, cz - 2, P.primary, P.emissive);
+    addBox(7, 0.8, 1, cx, 5.4, cz - 2, P.accent, P.emissive, 0.5);
+
+    // Crumbled tower base
+    addCylinder(3, 3.5, 2, 12, cx + 2, 1, cz + 3, P.secondary, P.emissive, 0.15);
+    addCylinder(2.5, 3, 1.5, 10, cx + 2, 2.75, cz + 3, P.secondary, P.emissive, 0.15);
+  })();
+
+  /* ================================================================
+     ZONE 3: ENEMY BASE  (east, crimson/dark red)
+  ================================================================ */
+  (() => {
+    const cx = ZONES.base.center.x, cz = ZONES.base.center.z;
+    const P = ZONES.base.palette;
+
+    // Perimeter walls (with entry gap facing west toward paths)
+    addBox(0.8, 4, 24, cx - 14, 2, cz, P.primary, P.emissive);       // west wall (split)
+    addBox(0.8, 4, 18, cx + 14, 2, cz - 2, P.primary, P.emissive);   // east wall
+    addBox(28, 4, 0.8, cx, 2, cz - 14, P.primary, P.emissive);       // north wall
+    addBox(28, 4, 0.8, cx, 2, cz + 12, P.primary, P.emissive);       // south wall
+
+    // Watchtowers (4 corners)
+    const corners = [
+      [cx - 14, cz - 14], [cx + 14, cz - 14],
+      [cx - 14, cz + 12], [cx + 14, cz + 12],
+    ];
+    for (const [tx, tz] of corners) {
+      addCylinder(1.2, 1.4, 7, 8, tx, 3.5, tz, P.secondary, P.emissive);
+      addBox(3, 0.3, 3, tx, 7, tz, P.primary, P.emissive);
+      // Railing posts
+      addCylinder(0.1, 0.1, 1.5, 6, tx - 1.2, 7.75, tz - 1.2, P.accent, P.emissive, 0.5);
+      addCylinder(0.1, 0.1, 1.5, 6, tx + 1.2, 7.75, tz + 1.2, P.accent, P.emissive, 0.5);
+    }
+
+    // Central command structure
+    addBox(6, 3.5, 6, cx + 2, 1.75, cz - 4, P.secondary, P.emissive);
+    addBox(7, 0.4, 7, cx + 2, 3.7, cz - 4, P.primary, P.emissive);  // roof
+    // Antenna
+    addCylinder(0.12, 0.12, 5, 6, cx + 2, 6.2, cz - 4, P.accent, P.emissive, 0.8);
+
+    // Barricades inside
+    addBox(4, 1.5, 0.5, cx - 5, 0.75, cz - 5, P.secondary, P.emissive);
+    addBox(4, 1.5, 0.5, cx - 5, 0.75, cz + 3, P.secondary, P.emissive);
+    addBox(0.5, 1.5, 6, cx - 7, 0.75, cz - 1, P.secondary, P.emissive);
+
+    // Supply depot (stacked crates)
+    addBox(2, 1.5, 2, cx + 8, 0.75, cz + 4, P.secondary, P.emissive);
+    addBox(2, 1.5, 2, cx + 10.5, 0.75, cz + 4, P.secondary, P.emissive);
+    addBox(2, 1.5, 2, cx + 9.2, 2.25, cz + 4, P.primary, P.emissive);
+
+    // Fuel drums
+    addCylinder(0.7, 0.7, 1.6, 10, cx + 10, 0.8, cz - 8, 0x553322, P.emissive, 0.4);
+    addCylinder(0.7, 0.7, 1.6, 10, cx + 11.5, 0.8, cz - 7.5, 0x553322, P.emissive, 0.4);
+    addCylinder(0.7, 0.7, 1.6, 10, cx + 10.8, 0.8, cz - 9, 0x553322, P.emissive, 0.4);
+
+    // Gate pillars (entry on west side)
+    addBox(1.2, 5, 1.2, cx - 14, 2.5, cz - 6, P.accent, P.emissive, 0.6);
+    addBox(1.2, 5, 1.2, cx - 14, 2.5, cz + 5, P.accent, P.emissive, 0.6);
+  })();
+
+  /* ================================================================
+     PATH MARKERS — low bollards connecting zones
+  ================================================================ */
+  (() => {
+    function pathBollards(x1, z1, x2, z2, count, color, emissive) {
+      for (let i = 0; i <= count; i++) {
+        const t = i / count;
+        const x = x1 + (x2 - x1) * t;
+        const z = z1 + (z2 - z1) * t;
+        // Offset alternately left/right of path
+        const dx = -(z2 - z1), dz = (x2 - x1);
+        const len = Math.sqrt(dx * dx + dz * dz) || 1;
+        const side = (i % 2 === 0) ? 2.5 : -2.5;
+        addCylinder(0.15, 0.2, 0.7, 6,
+          x + (dx / len) * side, 0.35, z + (dz / len) * side,
+          color, emissive, 0.6);
+      }
+    }
+
+    // Camp → Outpost (south-west path)
+    pathBollards(
+      ZONES.camp.center.x - 12, ZONES.camp.center.z - 8,
+      ZONES.outpost.center.x + 12, ZONES.outpost.center.z + 15,
+      14, 0x5a6a5a, 0x88aa88
+    );
+
+    // Camp → Base (south-east path)
+    pathBollards(
+      ZONES.camp.center.x + 14, ZONES.camp.center.z - 4,
+      ZONES.base.center.x - 18, ZONES.base.center.z + 8,
+      14, 0x6a5a5a, 0xaa8888
+    );
+
+    // Outpost → Base (east path)
+    pathBollards(
+      ZONES.outpost.center.x + 16, ZONES.outpost.center.z - 4,
+      ZONES.base.center.x - 18, ZONES.base.center.z - 4,
+      16, 0x5a5a6a, 0x8888aa
+    );
+  })();
+
+  /* ================================================================
+     SCATTERED ENVIRONMENT (rocks, debris between zones)
+  ================================================================ */
+  (() => {
+    const rng = (min, max) => min + Math.random() * (max - min);
+    for (let i = 0; i < 30; i++) {
+      const x = rng(-90, 90);
+      const z = rng(-80, 70);
+      // Skip if inside a zone
+      let inZone = false;
+      for (const zone of Object.values(ZONES)) {
+        const dx = x - zone.center.x, dz = z - zone.center.z;
+        if (Math.sqrt(dx*dx + dz*dz) < zone.radius + 2) { inZone = true; break; }
+      }
+      if (inZone) continue;
+      const s = rng(0.5, 1.8);
+      addBox(s, s * rng(0.4, 1.2), s, x, s * 0.3, z, 0x2a2a38, 0x333355, 0.1);
+    }
+  })();
 
   /* ================================================================
      PLAYER / CAMERA
   ================================================================ */
   const player = {
-    pos: new THREE.Vector3(0, CFG.playerHeight, 12),
+    pos: new THREE.Vector3(
+      ZONES.camp.center.x,
+      CFG.playerHeight,
+      ZONES.camp.center.z + 8
+    ),
     vel: new THREE.Vector3(),
     onGround: true,
     euler: new THREE.Euler(0, 0, 0, 'YXZ'),
@@ -323,9 +746,11 @@
   window.addEventListener('keydown', e => { keys[e.code] = true;  });
   window.addEventListener('keyup',   e => { keys[e.code] = false; });
 
-  // Pointer lock
   const overlay   = document.getElementById('overlay');
   const crosshair = document.getElementById('crosshair');
+  const minimapWrap = document.getElementById('minimap-wrap');
+  const compassEl = document.getElementById('compass');
+  const zoneIndEl = document.getElementById('zone-indicator');
   let locked = false;
 
   overlay.addEventListener('click', () => {
@@ -336,6 +761,9 @@
     locked = !!document.pointerLockElement;
     overlay.classList.toggle('hidden', locked);
     crosshair.classList.toggle('visible', locked);
+    minimapWrap.classList.toggle('visible', locked);
+    compassEl.classList.toggle('visible', locked);
+    zoneIndEl.classList.toggle('visible', locked);
   });
 
   document.addEventListener('mousemove', e => {
@@ -367,10 +795,177 @@
   }
 
   /* ================================================================
+     MINIMAP
+  ================================================================ */
+  const minimapCanvas = document.getElementById('minimap');
+  const mCtx = minimapCanvas.getContext('2d');
+  const MAP_SIZE = 360;
+  const MAP_WORLD = 220;  // world units visible on map
+
+  function drawMinimap() {
+    const px = player.pos.x, pz = player.pos.z;
+    const scale = MAP_SIZE / MAP_WORLD;
+
+    mCtx.clearRect(0, 0, MAP_SIZE, MAP_SIZE);
+
+    // Clip to circle
+    mCtx.save();
+    mCtx.beginPath();
+    mCtx.arc(MAP_SIZE/2, MAP_SIZE/2, MAP_SIZE/2 - 2, 0, Math.PI*2);
+    mCtx.clip();
+
+    // Background
+    mCtx.fillStyle = 'rgba(10,10,22,0.85)';
+    mCtx.fillRect(0, 0, MAP_SIZE, MAP_SIZE);
+
+    // Transform: player at center, north up
+    mCtx.translate(MAP_SIZE/2, MAP_SIZE/2);
+
+    // Zone areas
+    for (const [key, zone] of Object.entries(ZONES)) {
+      const sx = (zone.center.x - px) * scale;
+      const sz = (zone.center.z - pz) * scale;
+      mCtx.beginPath();
+      mCtx.arc(sx, sz, zone.radius * scale, 0, Math.PI * 2);
+      const colors = {
+        camp:    'rgba(200,160,60,0.12)',
+        outpost: 'rgba(60,160,180,0.12)',
+        base:    'rgba(180,50,50,0.12)',
+      };
+      mCtx.fillStyle = colors[key] || 'rgba(100,100,100,0.1)';
+      mCtx.fill();
+
+      // Zone border
+      const borderColors = {
+        camp:    'rgba(200,160,60,0.3)',
+        outpost: 'rgba(60,160,180,0.3)',
+        base:    'rgba(180,50,50,0.3)',
+      };
+      mCtx.strokeStyle = borderColors[key] || 'rgba(100,100,100,0.2)';
+      mCtx.lineWidth = 1.5;
+      mCtx.stroke();
+
+      // Zone label
+      mCtx.fillStyle = borderColors[key].replace('0.3', '0.7');
+      mCtx.font = 'bold 10px Inter, Segoe UI, sans-serif';
+      mCtx.textAlign = 'center';
+      mCtx.fillText(zone.name.toUpperCase(), sx, sz + 4);
+    }
+
+    // Obstacles as dots
+    for (const obs of obstacles) {
+      const ox = (obs.mesh.position.x - px) * scale;
+      const oz = (obs.mesh.position.z - pz) * scale;
+      if (Math.abs(ox) > MAP_SIZE/2 || Math.abs(oz) > MAP_SIZE/2) continue;
+
+      const bw = (obs.box.max.x - obs.box.min.x) * scale;
+      const bd = (obs.box.max.z - obs.box.min.z) * scale;
+      mCtx.fillStyle = 'rgba(100,100,150,0.35)';
+      mCtx.fillRect(ox - bw/2, oz - bd/2, Math.max(bw, 2), Math.max(bd, 2));
+    }
+
+    // Player arrow
+    mCtx.save();
+    mCtx.rotate(-player.euler.y + Math.PI);
+    mCtx.beginPath();
+    mCtx.moveTo(0, -8);
+    mCtx.lineTo(-5, 6);
+    mCtx.lineTo(0, 3);
+    mCtx.lineTo(5, 6);
+    mCtx.closePath();
+    mCtx.fillStyle = '#ddd';
+    mCtx.fill();
+    mCtx.strokeStyle = 'rgba(255,255,255,0.6)';
+    mCtx.lineWidth = 1;
+    mCtx.stroke();
+    mCtx.restore();
+
+    mCtx.restore(); // un-clip
+
+    // Outer ring highlight
+    mCtx.beginPath();
+    mCtx.arc(MAP_SIZE/2, MAP_SIZE/2, MAP_SIZE/2 - 2, 0, Math.PI*2);
+    mCtx.strokeStyle = 'rgba(140,140,200,0.2)';
+    mCtx.lineWidth = 2;
+    mCtx.stroke();
+
+    // N marker
+    mCtx.fillStyle = 'rgba(255,180,180,0.7)';
+    mCtx.font = 'bold 12px Inter, Segoe UI, sans-serif';
+    mCtx.textAlign = 'center';
+    mCtx.fillText('N', MAP_SIZE/2, 14);
+  }
+
+  /* ================================================================
+     COMPASS
+  ================================================================ */
+  const compassStrip = document.getElementById('compass-strip');
+  const compassDirs = ['N','NE','E','SE','S','SW','W','NW'];
+
+  function updateCompass() {
+    // Player heading in degrees (0 = north/+Z, clockwise)
+    let heading = THREE.MathUtils.radToDeg(player.euler.y);
+    heading = ((heading % 360) + 360) % 360;
+
+    let html = '';
+    // Render a wide strip of compass markings
+    for (let deg = -180; deg <= 540; deg += 10) {
+      const normalized = ((deg % 360) + 360) % 360;
+      const dirIdx = Math.round(normalized / 45) % 8;
+      const isCardinal = normalized % 90 === 0;
+      const isInter = normalized % 45 === 0 && !isCardinal;
+
+      if (normalized % 45 === 0) {
+        const cls = isCardinal ? 'dir cardinal' : 'dir';
+        html += `<span class="${cls}" style="width:40px">${compassDirs[dirIdx]}</span>`;
+      } else {
+        const label = Math.round(normalized) + '°';
+        html += `<span class="tick" style="width:40px;font-size:.55rem;opacity:.3">${(normalized % 30 === 0) ? label : '·'}</span>`;
+      }
+    }
+    compassStrip.innerHTML = html;
+
+    // Position: each unit is 40px, offset by heading
+    const px = -(heading / 10) * 40 + 160 + 40 * 18; // center offset
+    compassStrip.style.left = px + 'px';
+  }
+
+  /* ================================================================
+     ZONE DETECTION
+  ================================================================ */
+  let currentZone = '';
+  function detectZone() {
+    let closest = '', closestDist = Infinity;
+    for (const [key, zone] of Object.entries(ZONES)) {
+      const dx = player.pos.x - zone.center.x;
+      const dz = player.pos.z - zone.center.z;
+      const dist = Math.sqrt(dx*dx + dz*dz);
+      if (dist < zone.radius && dist < closestDist) {
+        closest = key;
+        closestDist = dist;
+      }
+    }
+    if (closest !== currentZone) {
+      currentZone = closest;
+      if (closest) {
+        const zone = ZONES[closest];
+        const c = new THREE.Color(zone.palette.accent);
+        zoneIndEl.style.color = `#${c.getHexString()}`;
+        zoneIndEl.style.borderColor = `rgba(${c.r*255|0},${c.g*255|0},${c.b*255|0},0.25)`;
+        zoneIndEl.textContent = zone.name;
+      } else {
+        zoneIndEl.style.color = 'rgba(180,180,220,.5)';
+        zoneIndEl.style.borderColor = 'rgba(255,255,255,.08)';
+        zoneIndEl.textContent = 'Wilderness';
+      }
+    }
+  }
+
+  /* ================================================================
      HEAD‑BOB
   ================================================================ */
   let bobTimer = 0;
-  const bobFreq = 11;   // Hz
+  const bobFreq = 11;
   const bobAmpY = 0.035;
   const bobAmpX = 0.018;
 
@@ -382,10 +977,12 @@
   const _right   = new THREE.Vector3();
   const _tryPos  = new THREE.Vector3();
   const debugEl  = document.getElementById('debug');
+  let frameCount = 0;
 
   function animate() {
     requestAnimationFrame(animate);
     const dt = Math.min(clock.getDelta(), 0.1);
+    frameCount++;
 
     if (locked) {
       /* ── Determine move direction ─────────────────── */
@@ -412,17 +1009,14 @@
       player.vel.y -= CFG.gravity * dt;
 
       /* ── Slide‑based collision (axis‑separated) ───── */
-      // X axis
       _tryPos.copy(player.pos);
       _tryPos.x += move.x * dt;
       if (!collidesAny(_tryPos)) player.pos.x = _tryPos.x;
 
-      // Z axis
       _tryPos.copy(player.pos);
       _tryPos.z += move.z * dt;
       if (!collidesAny(_tryPos)) player.pos.z = _tryPos.z;
 
-      // Y axis
       _tryPos.copy(player.pos);
       _tryPos.y += player.vel.y * dt;
       if (!collidesAny(_tryPos) && _tryPos.y >= CFG.playerHeight) {
@@ -435,14 +1029,12 @@
         player.vel.y = 0;
       }
 
-      // Clamp to ground
       if (player.pos.y < CFG.playerHeight) {
         player.pos.y = CFG.playerHeight;
         player.vel.y = 0;
         player.onGround = true;
       }
 
-      // Keep within arena
       const half = CFG.groundSize / 2 - 1;
       player.pos.x = THREE.MathUtils.clamp(player.pos.x, -half, half);
       player.pos.z = THREE.MathUtils.clamp(player.pos.z, -half, half);
@@ -459,12 +1051,20 @@
         camera.position.copy(player.pos);
       }
 
+      /* ── HUD updates (throttled) ──────────────────── */
+      if (frameCount % 3 === 0) {
+        drawMinimap();
+        updateCompass();
+        detectZone();
+      }
+
       /* ── Debug HUD ────────────────────────────────── */
       debugEl.innerHTML =
         `pos  ${player.pos.x.toFixed(1)}, ${player.pos.y.toFixed(1)}, ${player.pos.z.toFixed(1)}<br>` +
         `vel  ${move.length().toFixed(1)} u/s` +
         (sprint > 1 ? '  ⚡ sprint' : '') +
-        (!player.onGround ? '  ↑ airborne' : '');
+        (!player.onGround ? '  ↑ airborne' : '') +
+        (currentZone ? `<br>zone  ${ZONES[currentZone].name}` : '<br>zone  Wilderness');
     }
 
     renderer.render(scene, camera);
