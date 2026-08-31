@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FPS Playground — Three.js</title>
+  <style>
+    /* ── Reset ───────────────────────────────────────── */
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a0f; }
+    canvas { display: block; }
+
+    /* ── Overlay ─────────────────────────────────────── */
+    #overlay {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: rgba(6, 6, 14, .88);
+      backdrop-filter: blur(18px);
+      z-index: 10;
+      transition: opacity .4s ease;
+      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+      color: #e2e2f0;
+      cursor: pointer;
+      user-select: none;
+    }
+    #overlay.hidden { opacity: 0; pointer-events: none; }
+
+    #overlay h1 {
+      font-size: 2.6rem; font-weight: 700;
+      letter-spacing: -.03em;
+      background: linear-gradient(135deg, #7eb6ff 0%, #c084fc 50%, #f472b6 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      margin-bottom: .6rem;
+    }
+    #overlay p {
+      font-size: 1.05rem; color: #9898b8; max-width: 380px; text-align: center;
+      line-height: 1.6;
+    }
+    #overlay .keys {
+      margin-top: 1.6rem;
+      display: flex; gap: .6rem;
+    }
+    #overlay .key {
+      width: 44px; height: 44px;
+      display: flex; align-items: center; justify-content: center;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 8px;
+      font-size: .95rem; font-weight: 600;
+      background: rgba(255,255,255,.04);
+      color: #c4c4e0;
+    }
+    #overlay .hint {
+      margin-top: 2.4rem;
+      font-size: .82rem; color: #5a5a7a;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: .5; }
+      50%      { opacity: 1; }
+    }
+
+    /* ── Crosshair ───────────────────────────────────── */
+    #crosshair {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 5;
+      opacity: 0;
+      transition: opacity .3s ease;
+    }
+    #crosshair.visible { opacity: .7; }
+    #crosshair::before, #crosshair::after {
+      content: '';
+      position: absolute;
+      background: #e0e0ff;
+      border-radius: 1px;
+    }
+    #crosshair::before {
+      width: 2px; height: 18px;
+      top: -9px; left: -1px;
+    }
+    #crosshair::after {
+      width: 18px; height: 2px;
+      top: -1px; left: -9px;
+    }
+
+    /* ── Debug info ──────────────────────────────────── */
+    #debug {
+      position: fixed; bottom: 16px; left: 16px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: .72rem; color: rgba(180,180,220,.45);
+      z-index: 5; pointer-events: none;
+      line-height: 1.7;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Overlay -->
+  <div id="overlay">
+    <h1>FPS Playground</h1>
+    <p>First-person movement demo with collision. Walk around and explore the arena.</p>
+    <div class="keys">
+      <div class="key" style="grid-column:2">W</div>
+      <div class="key">A</div>
+      <div class="key">S</div>
+      <div class="key">D</div>
+    </div>
+    <span class="hint">Click anywhere to start</span>
+  </div>
+
+  <!-- Crosshair -->
+  <div id="crosshair"></div>
+
+  <!-- Debug -->
+  <div id="debug"></div>
+
+  <!-- Three.js (r170 ESM‑compat UMD) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <script>
+  /* ================================================================
+     CONFIG
+  ================================================================ */
+  const CFG = {
+    moveSpeed:    8,       // units / sec
+    sprintMult:   1.8,
+    jumpForce:    9,
+    gravity:      25,
+    playerHeight: 1.7,
+    playerRadius: 0.35,
+    mouseSens:    0.002,
+    groundSize:   120,
+    fogNear:      40,
+    fogFar:       110,
+  };
+
+  /* ================================================================
+     SCENE SETUP
+  ================================================================ */
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  document.body.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0c0c1a);
+  scene.fog = new THREE.Fog(0x0c0c1a, CFG.fogNear, CFG.fogFar);
+
+  const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 500);
+
+  /* ================================================================
+     SKYBOX — procedural gradient hemisphere
+  ================================================================ */
+  (() => {
+    const skyGeo = new THREE.SphereGeometry(200, 32, 32);
+    const skyMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      uniforms: {
+        topColor:    { value: new THREE.Color(0x0b0b2a) },
+        bottomColor: { value: new THREE.Color(0x141428) },
+        horizonColor:{ value: new THREE.Color(0x1e1e4a) },
+        offset:      { value: 20 },
+        exponent:    { value: 0.5 },
+      },
+      vertexShader: `
+        varying vec3 vWorldPos;
+        void main() {
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vWorldPos = wp.xyz;
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }`,
+      fragmentShader: `
+        uniform vec3  topColor;
+        uniform vec3  bottomColor;
+        uniform vec3  horizonColor;
+        uniform float offset;
+        uniform float exponent;
+        varying vec3  vWorldPos;
+        void main() {
+          float h = normalize(vWorldPos + vec3(0.0, offset, 0.0)).y;
+          float t = pow(max(h, 0.0), exponent);
+          vec3 col = mix(horizonColor, topColor, t);
+          col = mix(bottomColor, col, smoothstep(-0.1, 0.15, h));
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    });
+    scene.add(new THREE.Mesh(skyGeo, skyMat));
+  })();
+
+  /* ================================================================
+     LIGHTING
+  ================================================================ */
+  const ambient = new THREE.AmbientLight(0x6070a0, 0.45);
+  scene.add(ambient);
+
+  const dirLight = new THREE.DirectionalLight(0xffeedd, 0.9);
+  dirLight.position.set(15, 30, 10);
+  dirLight.castShadow = true;
+  dirLight.shadow.mapSize.set(2048, 2048);
+  dirLight.shadow.camera.near = 0.5;
+  dirLight.shadow.camera.far = 80;
+  dirLight.shadow.camera.left = -40;
+  dirLight.shadow.camera.right = 40;
+  dirLight.shadow.camera.top = 40;
+  dirLight.shadow.camera.bottom = -40;
+  dirLight.shadow.bias = -0.001;
+  scene.add(dirLight);
+
+  // Soft fill from below
+  const hemiLight = new THREE.HemisphereLight(0x4466aa, 0x223344, 0.35);
+  scene.add(hemiLight);
+
+  /* ================================================================
+     GROUND
+  ================================================================ */
+  (() => {
+    const S = CFG.groundSize;
+    // Procedural grid texture
+    const c = document.createElement('canvas');
+    c.width = 512; c.height = 512;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#181828';
+    ctx.fillRect(0, 0, 512, 512);
+    ctx.strokeStyle = 'rgba(80, 80, 140, 0.18)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 512; i += 32) {
+      ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 512); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(512, i); ctx.stroke();
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(S / 4, S / 4);
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(S, S),
+      new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85, metalness: 0.05 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+  })();
+
+  /* ================================================================
+     OBSTACLES
+  ================================================================ */
+  const obstacles = []; // { mesh, box }
+
+  function createObstacle(w, h, d, x, y, z, color, emissive) {
+    const geo = new THREE.BoxGeometry(w, h, d);
+    const mat = new THREE.MeshStandardMaterial({
+      color,
+      emissive: emissive || 0x000000,
+      emissiveIntensity: 0.3,
+      roughness: 0.55,
+      metalness: 0.3,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+
+    // Edge glow
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(geo),
+      new THREE.LineBasicMaterial({ color: emissive || color, transparent: true, opacity: 0.35 })
+    );
+    edges.position.copy(mesh.position);
+    scene.add(edges);
+
+    const bb = new THREE.Box3().setFromObject(mesh);
+    obstacles.push({ mesh, edges, box: bb });
+    return mesh;
+  }
+
+  // Arena walls / pillars / crates
+  createObstacle(3,  3.6,  3,    6,  1.8,   -4,   0x3a3a5c, 0x6a5acd);
+  createObstacle(2,  2.2,  2,   -5,  1.1,   -8,   0x4a3a3a, 0xcd5a5a);
+  createObstacle(5,  1.4,  1.5,  0,  0.7,    7,   0x3a4a3a, 0x5acd6a);
+  createObstacle(1.5,4,    1.5, 10,  2,      2,   0x4a4a5c, 0x8a7acc);
+  createObstacle(8,  2.5,  0.6,-3,   1.25, -14,   0x3c3c50, 0x5577cc);
+  createObstacle(2,  1.6,  4,   12,  0.8,  -10,   0x50403a, 0xcc8844);
+  createObstacle(1.8,5.5,  1.8,-12,  2.75,   3,   0x3a3a4e, 0x9966dd);
+  createObstacle(6,  0.8,  6,   -8,  0.4,  -20,   0x3e3e52, 0x44aacc);
+  createObstacle(2.5,3,    2.5, 16,  1.5,   10,   0x4a3a4e, 0xcc44aa);
+  createObstacle(4,  2,    1,   -15, 1,    -12,   0x3a4a4e, 0x44ccaa);
+
+  // Decorative distant columns
+  for (let i = 0; i < 8; i++) {
+    const angle = (i / 8) * Math.PI * 2;
+    const r = 38 + Math.random() * 8;
+    const h = 4 + Math.random() * 4;
+    createObstacle(
+      1.2, h, 1.2,
+      Math.cos(angle) * r, h / 2, Math.sin(angle) * r,
+      0x2a2a40, 0x4444aa
+    );
+  }
+
+  /* ================================================================
+     PLAYER / CAMERA
+  ================================================================ */
+  const player = {
+    pos: new THREE.Vector3(0, CFG.playerHeight, 12),
+    vel: new THREE.Vector3(),
+    onGround: true,
+    euler: new THREE.Euler(0, 0, 0, 'YXZ'),
+  };
+  camera.position.copy(player.pos);
+
+  /* ================================================================
+     INPUT
+  ================================================================ */
+  const keys = {};
+  window.addEventListener('keydown', e => { keys[e.code] = true;  });
+  window.addEventListener('keyup',   e => { keys[e.code] = false; });
+
+  // Pointer lock
+  const overlay   = document.getElementById('overlay');
+  const crosshair = document.getElementById('crosshair');
+  let locked = false;
+
+  overlay.addEventListener('click', () => {
+    renderer.domElement.requestPointerLock();
+  });
+
+  document.addEventListener('pointerlockchange', () => {
+    locked = !!document.pointerLockElement;
+    overlay.classList.toggle('hidden', locked);
+    crosshair.classList.toggle('visible', locked);
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!locked) return;
+    player.euler.y -= e.movementX * CFG.mouseSens;
+    player.euler.x -= e.movementY * CFG.mouseSens;
+    player.euler.x = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, player.euler.x));
+    camera.quaternion.setFromEuler(player.euler);
+  });
+
+  /* ================================================================
+     COLLISION HELPERS
+  ================================================================ */
+  const _playerBox = new THREE.Box3();
+
+  function getPlayerBox(pos) {
+    const r = CFG.playerRadius;
+    _playerBox.min.set(pos.x - r, pos.y - CFG.playerHeight, pos.z - r);
+    _playerBox.max.set(pos.x + r, pos.y + 0.1, pos.z + r);
+    return _playerBox;
+  }
+
+  function collidesAny(pos) {
+    const pb = getPlayerBox(pos);
+    for (const obs of obstacles) {
+      if (pb.intersectsBox(obs.box)) return true;
+    }
+    return false;
+  }
+
+  /* ================================================================
+     HEAD‑BOB
+  ================================================================ */
+  let bobTimer = 0;
+  const bobFreq = 11;   // Hz
+  const bobAmpY = 0.035;
+  const bobAmpX = 0.018;
+
+  /* ================================================================
+     GAME LOOP
+  ================================================================ */
+  const clock = new THREE.Clock();
+  const _forward = new THREE.Vector3();
+  const _right   = new THREE.Vector3();
+  const _tryPos  = new THREE.Vector3();
+  const debugEl  = document.getElementById('debug');
+
+  function animate() {
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.1);
+
+    if (locked) {
+      /* ── Determine move direction ─────────────────── */
+      camera.getWorldDirection(_forward);
+      _forward.y = 0; _forward.normalize();
+      _right.crossVectors(_forward, camera.up).normalize();
+
+      const sprint = keys['ShiftLeft'] ? CFG.sprintMult : 1;
+      const speed  = CFG.moveSpeed * sprint;
+      const move   = new THREE.Vector3();
+
+      if (keys['KeyW'] || keys['ArrowUp'])    move.add(_forward);
+      if (keys['KeyS'] || keys['ArrowDown'])  move.sub(_forward);
+      if (keys['KeyA'] || keys['ArrowLeft'])  move.sub(_right);
+      if (keys['KeyD'] || keys['ArrowRight']) move.add(_right);
+
+      if (move.lengthSq() > 0) move.normalize().multiplyScalar(speed);
+
+      /* ── Gravity & jump ───────────────────────────── */
+      if (keys['Space'] && player.onGround) {
+        player.vel.y = CFG.jumpForce;
+        player.onGround = false;
+      }
+      player.vel.y -= CFG.gravity * dt;
+
+      /* ── Slide‑based collision (axis‑separated) ───── */
+      // X axis
+      _tryPos.copy(player.pos);
+      _tryPos.x += move.x * dt;
+      if (!collidesAny(_tryPos)) player.pos.x = _tryPos.x;
+
+      // Z axis
+      _tryPos.copy(player.pos);
+      _tryPos.z += move.z * dt;
+      if (!collidesAny(_tryPos)) player.pos.z = _tryPos.z;
+
+      // Y axis
+      _tryPos.copy(player.pos);
+      _tryPos.y += player.vel.y * dt;
+      if (!collidesAny(_tryPos) && _tryPos.y >= CFG.playerHeight) {
+        player.pos.y = _tryPos.y;
+      } else {
+        if (player.vel.y < 0) {
+          player.pos.y = Math.max(player.pos.y, CFG.playerHeight);
+          player.onGround = true;
+        }
+        player.vel.y = 0;
+      }
+
+      // Clamp to ground
+      if (player.pos.y < CFG.playerHeight) {
+        player.pos.y = CFG.playerHeight;
+        player.vel.y = 0;
+        player.onGround = true;
+      }
+
+      // Keep within arena
+      const half = CFG.groundSize / 2 - 1;
+      player.pos.x = THREE.MathUtils.clamp(player.pos.x, -half, half);
+      player.pos.z = THREE.MathUtils.clamp(player.pos.z, -half, half);
+
+      /* ── Head bob ─────────────────────────────────── */
+      const isMoving = move.lengthSq() > 0.01 && player.onGround;
+      if (isMoving) {
+        bobTimer += dt * bobFreq * sprint;
+        camera.position.copy(player.pos);
+        camera.position.y += Math.sin(bobTimer) * bobAmpY;
+        camera.position.x += Math.cos(bobTimer * 0.5) * bobAmpX;
+      } else {
+        bobTimer = 0;
+        camera.position.copy(player.pos);
+      }
+
+      /* ── Debug HUD ────────────────────────────────── */
+      debugEl.innerHTML =
+        `pos  ${player.pos.x.toFixed(1)}, ${player.pos.y.toFixed(1)}, ${player.pos.z.toFixed(1)}<br>` +
+        `vel  ${move.length().toFixed(1)} u/s` +
+        (sprint > 1 ? '  ⚡ sprint' : '') +
+        (!player.onGround ? '  ↑ airborne' : '');
+    }
+
+    renderer.render(scene, camera);
+  }
+
+  animate();
+
+  /* ================================================================
+     RESIZE
+  ================================================================ */
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+  </script>
+</body>
+</html>
