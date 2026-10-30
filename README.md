@@ -6,6 +6,9 @@ A fast-paced, standalone 3D First-Person Shooter web game built with **Three.js*
 
 ---
 
+<img width="1895" height="898" alt="image" src="https://github.com/user-attachments/assets/94509b8d-e111-4f0e-a92f-a01dcc7c6ad0" />
+
+
 ## 🌟 Features
 
 - **Standalone 3D Engine**: Built directly using Three.js (r128) via CDN with procedural sky, terrain, shadows, and lighting.
