@@ -663,6 +663,51 @@
     window.goatcounter = { no_events: true };
   </script>
   <script data-goatcounter="https://sturdy-barnacle.goatcounter.com/count" data-goatcounter-settings='{"no_events": true}' async src="https://gc.zgo.at/count.js"></script>
+  <script>
+  /* ================================================================
+     ANALYTICS / EVENT TRACKING
+  ================================================================ */
+  const _existingTrack = (typeof window !== 'undefined' && typeof window.track === 'function') ? window.track : null;
+  function track(eventName) {
+    if (_existingTrack) {
+      try { _existingTrack(eventName); } catch (e) { console.warn(e); }
+    }
+    if (typeof window === 'undefined' || !window.location || window.location.protocol === 'file:') {
+      return;
+    }
+    if (window.goatcounter && typeof window.goatcounter.count === 'function') {
+      try {
+        window.goatcounter.count({
+          path: eventName,
+          event: true,
+        });
+      } catch (e) {
+        console.warn(e);
+      }
+    } else {
+      let retries = 0;
+      const interval = setInterval(() => {
+        retries++;
+        if (window.goatcounter && typeof window.goatcounter.count === 'function') {
+          clearInterval(interval);
+          try {
+            window.goatcounter.count({
+              path: eventName,
+              event: true,
+            });
+          } catch (e) {
+            console.warn(e);
+          }
+        } else if (retries >= 20) {
+          clearInterval(interval);
+        }
+      }, 100);
+    }
+  }
+  window.track = track;
+    window.goatcounter = { no_events: true };
+  </script>
+  <script data-goatcounter="https://sturdy-barnacle.goatcounter.com/count" data-goatcounter-settings='{"no_events": true}' async src="https://gc.zgo.at/count.js"></script>
 </head>
 <body>
 
